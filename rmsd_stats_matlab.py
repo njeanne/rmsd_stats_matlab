@@ -65,7 +65,7 @@ def get_conditions(path):
     return df
 
 
-def extract_rmsd(conditions, index_file, data_out_path):
+def extract_rmsd(conditions, index_file, pattern,  data_out_path):
     """
     Extract the RMSD values of each sample and return the aggregated RMSD values for each frame.
 
@@ -73,6 +73,8 @@ def extract_rmsd(conditions, index_file, data_out_path):
     :type conditions: pandas.DataFrame
     :param index_file: the path to the index file.
     :type index_file: str
+    :param pattern: the pattern to extract the sample names from the RMSD file names.
+    :type pattern: str
     :param data_out_path: the path to output data file.
     :type data_out_path: str
     :return: the regrouped data.
@@ -83,7 +85,7 @@ def extract_rmsd(conditions, index_file, data_out_path):
     index_conditions = pd.read_excel(index_file, sheet_name=1)
 
     data = {"sample": [], "condition": [], "frame": [],  f"RMSD": []}
-    pattern = re.compile("RMSD_(.+)_.+\\.csv")
+    pattern = re.compile(pattern)
     conditions_to_remove = []
     for _, row_condition in conditions.iterrows():
         by_condition = [fn for fn in os.listdir(row_condition["path"]) if
@@ -105,8 +107,13 @@ def extract_rmsd(conditions, index_file, data_out_path):
             prefix = f"\t\t- {sample}:"
             logging.info(f"{prefix:<50}{len(df_current['frames'])} frames.")
             current_frames = df_current["frames"].to_list()
-            data["sample"] = data["sample"] + (
+            try:
+                data["sample"] = data["sample"] + (
                         [index_samples[index_samples["sample"] == sample]["index"].values[0]] * len(current_frames))
+            except IndexError as ex:
+                logging.error(f"\"{sample}\" does not exists in the first tab of the index file \"{index_file}\". "
+                              f"Check if the --pattern {pattern} argument is correct.")
+                sys.exit(1)
             try:
                 data["condition"] = data["condition"] + (
                         [index_conditions[index_conditions["condition"] == row_condition["condition"]]["index"].values[
@@ -118,6 +125,7 @@ def extract_rmsd(conditions, index_file, data_out_path):
             data["frame"] = data["frame"] + current_frames
             data["RMSD"] = data["RMSD"] + df_current["RMSD"].to_list()
 
+    logging.info("Creating the CSV output file, please be patient..")
     df = pd.DataFrame.from_dict(data)
     df.to_csv(data_out_path, sep=',', index=False)
     logging.info(f"RMSD data by sample and condition written: {data_out_path}")
@@ -149,6 +157,8 @@ if __name__ == "__main__":
     insertions,tests/inputs/insertions,#fc030b
     WT,tests/inputs/WT,#0303fc
     
+    The color column is not used.
+    
     - an XLS file with 2 tabs, one with the samples and the corresponding index, the other with the conditions and the 
     index corresponding. The first tab contain the samples and the corresponding index, the second tab the conditions 
     and the corresponding index. See data/index.xlsx file for more details.
@@ -158,6 +168,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output file.")
     parser.add_argument("-i", "--index", required=True, type=str, help="the path to the XLS index file.")
+    parser.add_argument("-p", "--pattern", required=True, type=str,
+                        help="the pattern to extract the sample names from the RMSD file names. The capturing group "
+                             "must retrieve the sample name")
     parser.add_argument("-l", "--log", required=False, type=str,
                         help="the path for the log file. If this option is skipped, the log file is created in the "
                              "output directory.")
@@ -185,4 +198,4 @@ if __name__ == "__main__":
     logging.info(f"CMD: {' '.join(sys.argv)}")
 
     data_conditions = get_conditions(args.input)
-    extract_rmsd(data_conditions, args.index, args.out)
+    extract_rmsd(data_conditions, args.index, args.pattern, args.out)
